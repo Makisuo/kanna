@@ -442,6 +442,9 @@ interface SplitChatPanelsProps {
   chatInputRef: React.RefObject<HTMLTextAreaElement | null>
 }
 
+const MIN_SPLIT_PANEL_WIDTH = 380
+const SPLIT_HANDLE_WIDTH = 8
+
 function SplitChatPanels({
   allChatIds,
   socket,
@@ -457,38 +460,124 @@ function SplitChatPanels({
   resolvedKeybindings,
   chatInputRef,
 }: SplitChatPanelsProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const paneRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const previousChatIdsRef = useRef<(string | null)[]>([])
+  const [viewportWidth, setViewportWidth] = useState(0)
+
+  useEffect(() => {
+    const element = containerRef.current
+    if (!element) return
+
+    const updateWidth = () => {
+      setViewportWidth(element.getBoundingClientRect().width)
+    }
+
+    const observer = new ResizeObserver(updateWidth)
+    observer.observe(element)
+    updateWidth()
+
+    return () => observer.disconnect()
+  }, [])
+
+  const panelCount = allChatIds.length
+  const requiredWidth = panelCount * MIN_SPLIT_PANEL_WIDTH + (panelCount - 1) * SPLIT_HANDLE_WIDTH
+
+  // Auto-scroll newly added panels into view
+  useEffect(() => {
+    const previousIds = previousChatIdsRef.current
+    const addedId = allChatIds.find((id) => id && !previousIds.includes(id))
+    previousChatIdsRef.current = allChatIds
+
+    if (!addedId || previousIds.length === 0) return
+
+    const element = paneRefs.current[addedId]
+    if (!element) return
+
+    element.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+      inline: "nearest",
+    })
+  }, [allChatIds])
+
+  const isScrollable = requiredWidth > viewportWidth
+
   return (
-    <ResizablePanelGroup orientation="horizontal" className="h-full">
-      {allChatIds.map((cId, i) => (
-        <Fragment key={cId ?? `panel-${i}`}>
-          {i > 0 && <ResizableHandle orientation="horizontal" className="!w-2 !mx-0 before:!w-0 cursor-col-resize" />}
-          <ResizablePanel
-            id={`split-${i}`}
-            defaultSize={`${100 / allChatIds.length}%`}
-            minSize="20%"
-            className="min-h-0 min-w-0"
-          >
-            <SplitChatPanelSlot
-              index={i}
-              totalPanels={allChatIds.length}
-              chatId={cId}
-              socket={socket}
-              globalState={globalState}
-              isFocused={focusedIndex === i}
-              onFocus={onFocus}
-              onClose={i > 0 ? onClose : undefined}
-              navbarLocalPath={i === 0 ? navbarLocalPath : undefined}
-              showTerminalPane={i === 0 ? showTerminalPane : false}
-              onToggleEmbeddedTerminal={i === 0 ? onToggleEmbeddedTerminal : undefined}
-              showRightSidebar={i === 0 ? showRightSidebar : false}
-              onToggleRightSidebar={i === 0 ? onToggleRightSidebar : undefined}
-              resolvedKeybindings={i === 0 ? resolvedKeybindings : undefined}
-              chatInputRef={i === 0 ? chatInputRef : undefined}
-            />
-          </ResizablePanel>
-        </Fragment>
-      ))}
-    </ResizablePanelGroup>
+    <div ref={containerRef} className="min-h-0 h-full flex-1 overflow-x-auto overflow-y-hidden">
+      <div className="h-full min-h-0" style={{ width: isScrollable ? requiredWidth : "100%" }}>
+        {isScrollable ? (
+          // When panels don't fit, render as a simple flex row (no resizable panels)
+          // since resizable panels fight with overflow scrolling
+          <div className="flex h-full gap-2">
+            {allChatIds.map((cId, i) => (
+              <div
+                key={cId ?? `panel-${i}`}
+                ref={(el) => { if (cId) paneRefs.current[cId] = el }}
+                className="h-full shrink-0"
+                style={{ width: MIN_SPLIT_PANEL_WIDTH }}
+              >
+                <SplitChatPanelSlot
+                  index={i}
+                  totalPanels={panelCount}
+                  chatId={cId}
+                  socket={socket}
+                  globalState={globalState}
+                  isFocused={focusedIndex === i}
+                  onFocus={onFocus}
+                  onClose={i > 0 ? onClose : undefined}
+                  navbarLocalPath={i === 0 ? navbarLocalPath : undefined}
+                  showTerminalPane={i === 0 ? showTerminalPane : false}
+                  onToggleEmbeddedTerminal={i === 0 ? onToggleEmbeddedTerminal : undefined}
+                  showRightSidebar={i === 0 ? showRightSidebar : false}
+                  onToggleRightSidebar={i === 0 ? onToggleRightSidebar : undefined}
+                  resolvedKeybindings={i === 0 ? resolvedKeybindings : undefined}
+                  chatInputRef={i === 0 ? chatInputRef : undefined}
+                />
+              </div>
+            ))}
+          </div>
+        ) : (
+          // When panels fit, use resizable panels for drag-to-resize
+          <ResizablePanelGroup orientation="horizontal" className="h-full">
+            {allChatIds.map((cId, i) => (
+              <Fragment key={cId ?? `panel-${i}`}>
+                {i > 0 && <ResizableHandle orientation="horizontal" className="!w-2 !mx-0 before:!w-0 cursor-col-resize" />}
+                <ResizablePanel
+                  id={`split-${i}`}
+                  defaultSize={`${100 / panelCount}%`}
+                  minSize={`${MIN_SPLIT_PANEL_WIDTH}px`}
+                  className="min-h-0 min-w-0"
+                >
+                  <div
+                    ref={(el) => { if (cId) paneRefs.current[cId] = el }}
+                    className="h-full"
+                  >
+                    <SplitChatPanelSlot
+                      index={i}
+                      totalPanels={panelCount}
+                      chatId={cId}
+                      socket={socket}
+                      globalState={globalState}
+                      isFocused={focusedIndex === i}
+                      onFocus={onFocus}
+                      onClose={i > 0 ? onClose : undefined}
+                      navbarLocalPath={i === 0 ? navbarLocalPath : undefined}
+                      showTerminalPane={i === 0 ? showTerminalPane : false}
+                      onToggleEmbeddedTerminal={i === 0 ? onToggleEmbeddedTerminal : undefined}
+                      showRightSidebar={i === 0 ? showRightSidebar : false}
+                      onToggleRightSidebar={i === 0 ? onToggleRightSidebar : undefined}
+                      resolvedKeybindings={i === 0 ? resolvedKeybindings : undefined}
+                      chatInputRef={i === 0 ? chatInputRef : undefined}
+                    />
+                  </div>
+                </ResizablePanel>
+              </Fragment>
+            ))}
+          </ResizablePanelGroup>
+        )}
+      </div>
+    </div>
   )
 }
 

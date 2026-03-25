@@ -23,6 +23,7 @@ import type { SidebarChatRow, SidebarProjectGroup } from "../../../../shared/typ
 import { APP_NAME } from "../../../../shared/branding"
 import { getPathBasename } from "../../../lib/formatters"
 import { cn } from "../../../lib/utils"
+import { useSplitViewStore } from "../../../stores/splitViewStore"
 import { ProjectSectionMenu } from "./Menus"
 
 interface Props {
@@ -72,6 +73,8 @@ function SortableProjectGroup({
   const displayChats = isExpanded ? pathChats : pathChats.slice(0, chatsPerProject)
   const hasMore = pathChats.length > chatsPerProject
 
+  const splitPanelCount = useSplitViewStore((store) => store.projects[groupKey]?.panels.length ?? 0)
+
   const {
     attributes,
     listeners,
@@ -119,6 +122,11 @@ function SortableProjectGroup({
             {localPath}
           </TooltipContent>
         </Tooltip>
+        {splitPanelCount > 0 ? (
+          <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-muted text-[10px] font-medium text-muted-foreground tabular-nums">
+            {splitPanelCount + 1}
+          </span>
+        ) : null}
       </div>
       {onNewLocalChat && (
         <Tooltip>
