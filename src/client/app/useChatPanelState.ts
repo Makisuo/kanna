@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react"
 import {
   PROVIDERS,
   type AgentProvider,
@@ -122,18 +122,18 @@ export function useChatPanelState(socket: KannaSocket, chatId: string | null): C
     }
   }, [chatId, inputHeight, messages.length, runtime?.status])
 
-  function updateScrollState() {
+  const updateScrollState = useCallback(() => {
     const element = scrollRef.current
     if (!element) return
     const distance = element.scrollHeight - element.scrollTop - element.clientHeight
     setIsAtBottom(distance < 24)
-  }
+  }, [])
 
-  function scrollToBottom() {
+  const scrollToBottom = useCallback(() => {
     const element = scrollRef.current
     if (!element) return
     element.scrollTo({ top: element.scrollHeight, behavior: "smooth" })
-  }
+  }, [])
 
   async function handleSend(
     content: string,
