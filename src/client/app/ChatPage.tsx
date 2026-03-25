@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { useOutletContext } from "react-router-dom"
 import { RightSidebar } from "../components/chat-ui/RightSidebar"
 import { TerminalWorkspace } from "../components/chat-ui/TerminalWorkspace"
@@ -17,7 +17,9 @@ import { useSplitViewStore } from "../stores/splitViewStore"
 import { TERMINAL_TOGGLE_ANIMATION_DURATION_MS } from "./terminalToggleAnimation"
 import { useRightSidebarToggleAnimation } from "./useRightSidebarToggleAnimation"
 import { useTerminalToggleAnimation } from "./useTerminalToggleAnimation"
+import type { KeybindingsSnapshot } from "../../shared/types"
 import type { KannaState } from "./useKannaState"
+import type { KannaSocket } from "./socket"
 import { ChatPanel, type ChatPanelGlobalState } from "./ChatPanel"
 
 export function ChatPage() {
@@ -146,23 +148,20 @@ export function ChatPage() {
     return Math.min(RIGHT_SIDEBAR_MAX_SIZE_PERCENT, Math.max(RIGHT_SIDEBAR_MIN_SIZE_PERCENT, size))
   }
 
+  // Use a ref to hold the latest state values so the globalState object
+  // has a stable identity and doesn't cause ChatPanel re-renders.
+  const stateRef = useRef(state)
+  stateRef.current = state
+
   const globalState: ChatPanelGlobalState = useMemo(() => ({
-    sidebarCollapsed: state.sidebarCollapsed,
-    openSidebar: state.openSidebar,
-    expandSidebar: state.expandSidebar,
-    handleCompose: state.handleCompose,
-    handleOpenExternal: state.handleOpenExternal,
-    editorLabel: state.editorLabel,
-    hasSelectedProject: state.hasSelectedProject,
-  }), [
-    state.sidebarCollapsed,
-    state.openSidebar,
-    state.expandSidebar,
-    state.handleCompose,
-    state.handleOpenExternal,
-    state.editorLabel,
-    state.hasSelectedProject,
-  ])
+    get sidebarCollapsed() { return stateRef.current.sidebarCollapsed },
+    openSidebar: () => stateRef.current.openSidebar(),
+    expandSidebar: () => stateRef.current.expandSidebar(),
+    handleCompose: () => stateRef.current.handleCompose(),
+    handleOpenExternal: (action: "open_finder" | "open_terminal" | "open_editor") => stateRef.current.handleOpenExternal(action),
+    get editorLabel() { return stateRef.current.editorLabel },
+    get hasSelectedProject() { return stateRef.current.hasSelectedProject },
+  }), []) // stable — reads from ref
 
   const hasSplitPanels = splitPanels.length > 0
   const allChatIds = useMemo(() => {
@@ -183,47 +182,39 @@ export function ChatPage() {
       }
     : undefined
 
+  const handleFocus = useCallback((index: number) => {
+    setFocused(index)
+  }, [setFocused])
+
+  const handleClosePanel = useCallback((chatId: string) => {
+    removePanel(chatId)
+  }, [removePanel])
+
+  const noopFocus = useCallback(() => {}, [])
+
   const chatContent = hasSplitPanels ? (
-    <ResizablePanelGroup orientation="horizontal" className="h-full">
-      {allChatIds.map((cId, i) => (
-        <Fragment key={cId ?? `panel-${i}`}>
-          {i > 0 && <ResizableHandle orientation="horizontal" withHandle />}
-          <ResizablePanel
-            id={`split-${i}`}
-            defaultSize={`${100 / allChatIds.length}%`}
-            minSize="20%"
-            className="min-h-0 min-w-0"
-          >
-            <ChatPanel
-              chatId={cId}
-              socket={state.socket}
-              globalState={globalState}
-              isFocused={focusedIndex === i}
-              onFocus={() => setFocused(i)}
-              onClose={i > 0 ? () => removePanel(cId!) : undefined}
-              showNavbarToolbar={i === 0}
-              navbarLocalPath={i === 0 ? state.navbarLocalPath : undefined}
-              embeddedTerminalVisible={i === 0 ? showTerminalPane : undefined}
-              onToggleEmbeddedTerminal={i === 0 ? onToggleEmbeddedTerminal : undefined}
-              rightSidebarVisible={i === 0 ? showRightSidebar : undefined}
-              onToggleRightSidebar={i === 0 && projectId ? () => toggleRightSidebar(projectId) : undefined}
-              finderShortcut={i === 0 ? resolvedKeybindings.bindings.openInFinder : undefined}
-              editorShortcut={i === 0 ? resolvedKeybindings.bindings.openInEditor : undefined}
-              terminalShortcut={i === 0 ? resolvedKeybindings.bindings.toggleEmbeddedTerminal : undefined}
-              rightSidebarShortcut={i === 0 ? resolvedKeybindings.bindings.toggleRightSidebar : undefined}
-              chatInputRef={i === 0 ? chatInputRef : undefined}
-            />
-          </ResizablePanel>
-        </Fragment>
-      ))}
-    </ResizablePanelGroup>
+    <SplitChatPanels
+      allChatIds={allChatIds}
+      socket={state.socket}
+      globalState={globalState}
+      focusedIndex={focusedIndex}
+      onFocus={handleFocus}
+      onClose={handleClosePanel}
+      navbarLocalPath={state.navbarLocalPath}
+      showTerminalPane={showTerminalPane}
+      onToggleEmbeddedTerminal={onToggleEmbeddedTerminal}
+      showRightSidebar={showRightSidebar}
+      onToggleRightSidebar={projectId ? () => toggleRightSidebar(projectId) : undefined}
+      resolvedKeybindings={resolvedKeybindings}
+      chatInputRef={chatInputRef}
+    />
   ) : (
     <ChatPanel
       chatId={state.activeChatId}
       socket={state.socket}
       globalState={globalState}
       isFocused
-      onFocus={() => {}}
+      onFocus={noopFocus}
       navbarLocalPath={state.navbarLocalPath}
       embeddedTerminalVisible={showTerminalPane}
       onToggleEmbeddedTerminal={onToggleEmbeddedTerminal}
@@ -429,6 +420,146 @@ export function ChatPage() {
         chatContent
       )}
 
+    </div>
+  )
+}
+
+// Separate component to stabilize per-panel callbacks and avoid re-mounting panels
+interface SplitChatPanelsProps {
+  allChatIds: (string | null)[]
+  socket: KannaSocket
+  globalState: ChatPanelGlobalState
+  focusedIndex: number
+  onFocus: (index: number) => void
+  onClose: (chatId: string) => void
+  navbarLocalPath?: string
+  showTerminalPane: boolean
+  onToggleEmbeddedTerminal?: () => void
+  showRightSidebar: boolean
+  onToggleRightSidebar?: () => void
+  resolvedKeybindings: KeybindingsSnapshot
+  chatInputRef: React.RefObject<HTMLTextAreaElement | null>
+}
+
+function SplitChatPanels({
+  allChatIds,
+  socket,
+  globalState,
+  focusedIndex,
+  onFocus,
+  onClose,
+  navbarLocalPath,
+  showTerminalPane,
+  onToggleEmbeddedTerminal,
+  showRightSidebar,
+  onToggleRightSidebar,
+  resolvedKeybindings,
+  chatInputRef,
+}: SplitChatPanelsProps) {
+  return (
+    <ResizablePanelGroup orientation="horizontal" className="h-full">
+      {allChatIds.map((cId, i) => (
+        <Fragment key={cId ?? `panel-${i}`}>
+          {i > 0 && <ResizableHandle orientation="horizontal" className="!w-2 !-mx-0 before:!w-0 cursor-col-resize" />}
+          <ResizablePanel
+            id={`split-${i}`}
+            defaultSize={`${100 / allChatIds.length}%`}
+            minSize="20%"
+            className="min-h-0 min-w-0"
+          >
+            <SplitChatPanelSlot
+              index={i}
+              totalPanels={allChatIds.length}
+              chatId={cId}
+              socket={socket}
+              globalState={globalState}
+              isFocused={focusedIndex === i}
+              onFocus={onFocus}
+              onClose={i > 0 ? onClose : undefined}
+              navbarLocalPath={i === 0 ? navbarLocalPath : undefined}
+              showTerminalPane={i === 0 ? showTerminalPane : false}
+              onToggleEmbeddedTerminal={i === 0 ? onToggleEmbeddedTerminal : undefined}
+              showRightSidebar={i === 0 ? showRightSidebar : false}
+              onToggleRightSidebar={i === 0 ? onToggleRightSidebar : undefined}
+              resolvedKeybindings={i === 0 ? resolvedKeybindings : undefined}
+              chatInputRef={i === 0 ? chatInputRef : undefined}
+            />
+          </ResizablePanel>
+        </Fragment>
+      ))}
+    </ResizablePanelGroup>
+  )
+}
+
+// Wraps ChatPanel with stable callbacks and spacing
+interface SplitChatPanelSlotProps {
+  index: number
+  totalPanels: number
+  chatId: string | null
+  socket: KannaSocket
+  globalState: ChatPanelGlobalState
+  isFocused: boolean
+  onFocus: (index: number) => void
+  onClose?: (chatId: string) => void
+  navbarLocalPath?: string
+  showTerminalPane: boolean
+  onToggleEmbeddedTerminal?: () => void
+  showRightSidebar: boolean
+  onToggleRightSidebar?: () => void
+  resolvedKeybindings?: KeybindingsSnapshot
+  chatInputRef?: React.RefObject<HTMLTextAreaElement | null>
+}
+
+function SplitChatPanelSlot({
+  index,
+  totalPanels,
+  chatId,
+  socket,
+  globalState,
+  isFocused,
+  onFocus,
+  onClose,
+  navbarLocalPath,
+  showTerminalPane,
+  onToggleEmbeddedTerminal,
+  showRightSidebar,
+  onToggleRightSidebar,
+  resolvedKeybindings,
+  chatInputRef,
+}: SplitChatPanelSlotProps) {
+  const handleFocus = useCallback(() => onFocus(index), [onFocus, index])
+  const handleClose = useCallback(() => {
+    if (chatId && onClose) onClose(chatId)
+  }, [onClose, chatId])
+
+  const isFirst = index === 0
+  const isLast = index === totalPanels - 1
+
+  return (
+    <div className={cn(
+      "h-full group/split-panel",
+      "pt-2 pb-2",
+    )}>
+      <ChatPanel
+        chatId={chatId}
+        socket={socket}
+        globalState={globalState}
+        isFocused={isFocused}
+        isSplitView
+        onFocus={handleFocus}
+        onClose={onClose ? handleClose : undefined}
+        showNavbarToolbar={isFirst}
+        navbarLocalPath={navbarLocalPath}
+        embeddedTerminalVisible={showTerminalPane || undefined}
+        onToggleEmbeddedTerminal={onToggleEmbeddedTerminal}
+        rightSidebarVisible={showRightSidebar || undefined}
+        onToggleRightSidebar={onToggleRightSidebar}
+        finderShortcut={resolvedKeybindings?.bindings.openInFinder}
+        editorShortcut={resolvedKeybindings?.bindings.openInEditor}
+        terminalShortcut={resolvedKeybindings?.bindings.toggleEmbeddedTerminal}
+        rightSidebarShortcut={resolvedKeybindings?.bindings.toggleRightSidebar}
+        chatInputRef={chatInputRef}
+      />
     </div>
   )
 }

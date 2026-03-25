@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from "react"
+import { memo, useEffect, useRef, useState } from "react"
 import { ArrowDown, Flower, X } from "lucide-react"
 import { ChatInput } from "../components/chat-ui/ChatInput"
 import { ChatNavbar } from "../components/chat-ui/ChatNavbar"
 import { ProcessingMessage } from "../components/messages/ProcessingMessage"
-import { Card, CardContent } from "../components/ui/card"
 import { ScrollArea } from "../components/ui/scroll-area"
 import { cn } from "../lib/utils"
 import { KannaTranscript } from "./KannaTranscript"
@@ -34,6 +33,7 @@ interface ChatPanelProps {
   isFocused: boolean
   onFocus: () => void
   onClose?: () => void
+  isSplitView?: boolean
   showNavbarToolbar?: boolean
   navbarLocalPath?: string
   embeddedTerminalVisible?: boolean
@@ -47,13 +47,19 @@ interface ChatPanelProps {
   chatInputRef?: React.RefObject<HTMLTextAreaElement | null>
 }
 
-export function ChatPanel({
+function projectNameFromPath(localPath: string | undefined): string | undefined {
+  if (!localPath) return undefined
+  return localPath.split("/").filter(Boolean).pop()
+}
+
+export const ChatPanel = memo(function ChatPanel({
   chatId,
   socket,
   globalState,
   isFocused,
   onFocus,
   onClose,
+  isSplitView = false,
   showNavbarToolbar = true,
   navbarLocalPath,
   embeddedTerminalVisible,
@@ -122,18 +128,57 @@ export function ChatPanel({
   }, [panel.updateScrollState])
 
   const localPath = navbarLocalPath ?? panel.runtime?.localPath
+  const chatTitle = panel.runtime?.title
+  const projectName = projectNameFromPath(panel.runtime?.localPath)
 
   return (
-    <Card
+    <div
       ref={chatCardRef}
       className={cn(
-        "bg-background h-full flex flex-col overflow-hidden border-0 rounded-none relative",
-        onClose && isFocused && "ring-1 ring-inset ring-border"
+        "h-full flex flex-col overflow-hidden relative",
+        isSplitView
+          ? "border border-border rounded-2xl bg-background"
+          : "bg-background",
+        isSplitView && !isFocused && "border-border/50",
       )}
       onPointerDown={onFocus}
     >
-      <CardContent className="flex flex-1 min-h-0 flex-col p-0 overflow-hidden relative">
-        <div className="flex items-center">
+      <div className="flex flex-1 min-h-0 flex-col overflow-hidden relative">
+        {isSplitView ? (
+          <div className="group/split-header flex items-center gap-2 px-3 h-[34px] shrink-0 z-10">
+            <div className="flex-1 min-w-0 flex items-center gap-1.5">
+              {projectName ? (
+                <span className="text-[11px] text-muted-foreground/60 shrink-0 truncate">
+                  {projectName}
+                </span>
+              ) : null}
+              {projectName && chatTitle ? (
+                <span className="text-muted-foreground/30 text-xs">/</span>
+              ) : null}
+              {chatTitle ? (
+                <span className="text-[13px] truncate text-muted-foreground">
+                  {chatTitle}
+                </span>
+              ) : null}
+            </div>
+            {onClose ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 shrink-0 opacity-0 group-hover/split-header:opacity-100 hover:!opacity-100 focus-visible:!opacity-100 transition-opacity"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onClose()
+                }}
+                title="Close split panel"
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="flex items-center relative">
           <div className="flex-1 min-w-0">
             <ChatNavbar
               sidebarCollapsed={globalState.sidebarCollapsed}
@@ -155,22 +200,6 @@ export function ChatPanel({
               rightSidebarShortcut={rightSidebarShortcut}
             />
           </div>
-          {onClose ? (
-            <div className="absolute top-2 right-2 z-20">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onClose()
-                }}
-                title="Close split panel"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          ) : null}
         </div>
 
         <ScrollArea
@@ -208,7 +237,7 @@ export function ChatPanel({
             key={chatId ?? "new-chat"}
             className="pointer-events-none absolute inset-x-4 animate-fade-in"
             style={{
-              top: CHAT_NAVBAR_OFFSET_PX,
+              top: CHAT_NAVBAR_OFFSET_PX + (isSplitView ? 32 : 0),
               bottom: panel.transcriptPaddingBottom,
             }}
           >
@@ -256,7 +285,7 @@ export function ChatPanel({
             <ArrowDown className="h-5 w-5" />
           </button>
         </div>
-      </CardContent>
+      </div>
 
       <div className="absolute bottom-0 left-0 right-0 z-20 pointer-events-none">
         <div className="bg-gradient-to-t from-background via-background pointer-events-auto" ref={panel.inputRef}>
@@ -275,6 +304,6 @@ export function ChatPanel({
           />
         </div>
       </div>
-    </Card>
+    </div>
   )
-}
+})
