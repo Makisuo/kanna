@@ -1,14 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
-import { ArrowDown, Flower } from "lucide-react"
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { useOutletContext } from "react-router-dom"
-import { ChatInput } from "../components/chat-ui/ChatInput"
-import { ChatNavbar } from "../components/chat-ui/ChatNavbar"
 import { RightSidebar } from "../components/chat-ui/RightSidebar"
 import { TerminalWorkspace } from "../components/chat-ui/TerminalWorkspace"
-import { ProcessingMessage } from "../components/messages/ProcessingMessage"
-import { Card, CardContent } from "../components/ui/card"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../components/ui/resizable"
-import { ScrollArea } from "../components/ui/scroll-area"
 import { actionMatchesEvent, getResolvedKeybindings } from "../lib/keybindings"
 import { cn } from "../lib/utils"
 import {
@@ -19,25 +13,17 @@ import {
 } from "../stores/rightSidebarStore"
 import { DEFAULT_PROJECT_TERMINAL_LAYOUT, useTerminalLayoutStore } from "../stores/terminalLayoutStore"
 import { useTerminalPreferencesStore } from "../stores/terminalPreferencesStore"
+import { useSplitViewStore } from "../stores/splitViewStore"
 import { TERMINAL_TOGGLE_ANIMATION_DURATION_MS } from "./terminalToggleAnimation"
 import { useRightSidebarToggleAnimation } from "./useRightSidebarToggleAnimation"
 import { useTerminalToggleAnimation } from "./useTerminalToggleAnimation"
 import type { KannaState } from "./useKannaState"
-import { KannaTranscript } from "./KannaTranscript"
-import { useStickyChatFocus } from "./useStickyChatFocus"
-
-const EMPTY_STATE_TEXT = "What are we building?"
-const EMPTY_STATE_TYPING_INTERVAL_MS = 19
-const CHAT_NAVBAR_OFFSET_PX = 72
-const SCROLL_BUTTON_BOTTOM_PX = 120
+import { ChatPanel, type ChatPanelGlobalState } from "./ChatPanel"
 
 export function ChatPage() {
   const state = useOutletContext<KannaState>()
   const layoutRootRef = useRef<HTMLDivElement>(null)
-  const chatCardRef = useRef<HTMLDivElement>(null)
   const chatInputRef = useRef<HTMLTextAreaElement>(null)
-  const [typedEmptyStateText, setTypedEmptyStateText] = useState("")
-  const [isEmptyStateTypingComplete, setIsEmptyStateTypingComplete] = useState(false)
   const [fixedTerminalHeight, setFixedTerminalHeight] = useState(0)
   const projectId = state.runtime?.projectId ?? null
   const projectTerminalLayout = useTerminalLayoutStore((store) => (projectId ? store.projects[projectId] : undefined))
@@ -55,6 +41,11 @@ export function ChatPage() {
   const minColumnWidth = useTerminalPreferencesStore((store) => store.minColumnWidth)
   const keybindings = state.keybindings
   const resolvedKeybindings = useMemo(() => getResolvedKeybindings(keybindings), [keybindings])
+
+  const splitPanels = useSplitViewStore((store) => store.panels)
+  const focusedIndex = useSplitViewStore((store) => store.focusedIndex)
+  const setFocused = useSplitViewStore((store) => store.setFocused)
+  const removePanel = useSplitViewStore((store) => store.removePanel)
 
   const hasTerminals = terminalLayout.terminals.length > 0
   const showTerminalPane = Boolean(projectId && terminalLayout.isVisible && hasTerminals)
@@ -85,33 +76,6 @@ export function ChatPage() {
     showRightSidebar,
     rightSidebarSize: rightSidebarLayout.size,
   })
-
-  useStickyChatFocus({
-    rootRef: chatCardRef,
-    fallbackRef: chatInputRef,
-    enabled: state.hasSelectedProject && state.runtime?.status !== "waiting_for_user",
-    canCancel: state.canCancel,
-  })
-
-  useEffect(() => {
-    if (state.messages.length !== 0) return
-
-    setTypedEmptyStateText("")
-    setIsEmptyStateTypingComplete(false)
-
-    let characterIndex = 0
-    const interval = window.setInterval(() => {
-      characterIndex += 1
-      setTypedEmptyStateText(EMPTY_STATE_TEXT.slice(0, characterIndex))
-
-      if (characterIndex >= EMPTY_STATE_TEXT.length) {
-        window.clearInterval(interval)
-        setIsEmptyStateTypingComplete(true)
-      }
-    }, EMPTY_STATE_TYPING_INTERVAL_MS)
-
-    return () => window.clearInterval(interval)
-  }, [state.activeChatId, state.messages.length])
 
   useEffect(() => {
     function handleGlobalKeydown(event: KeyboardEvent) {
@@ -156,41 +120,6 @@ export function ChatPage() {
   }, [addTerminal, hasTerminals, projectId, resolvedKeybindings, toggleRightSidebar, toggleVisibility])
 
   useEffect(() => {
-    if (state.messages.length === 0) return
-
-    const frameId = window.requestAnimationFrame(() => {
-      const element = state.scrollRef.current
-      if (!element) return
-      element.scrollTo({ top: element.scrollHeight, behavior: "auto" })
-    })
-
-    return () => window.cancelAnimationFrame(frameId)
-  }, [state.messages.length, state.scrollRef])
-
-  useEffect(() => {
-    const frameId = window.requestAnimationFrame(() => {
-      state.updateScrollState()
-    })
-    const timeoutId = window.setTimeout(() => {
-      state.updateScrollState()
-    }, TERMINAL_TOGGLE_ANIMATION_DURATION_MS)
-
-    return () => {
-      window.cancelAnimationFrame(frameId)
-      window.clearTimeout(timeoutId)
-    }
-  }, [shouldRenderTerminalLayout, showTerminalPane, state.updateScrollState])
-
-  useEffect(() => {
-    function handleResize() {
-      state.updateScrollState()
-    }
-
-    window.addEventListener("resize", handleResize)
-    return () => window.removeEventListener("resize", handleResize)
-  }, [state.updateScrollState])
-
-  useEffect(() => {
     const element = layoutRootRef.current
     if (!element || !shouldRenderTerminalLayout) return
 
@@ -217,140 +146,95 @@ export function ChatPage() {
     return Math.min(RIGHT_SIDEBAR_MAX_SIZE_PERCENT, Math.max(RIGHT_SIDEBAR_MIN_SIZE_PERCENT, size))
   }
 
-  const chatCard = (
-    <Card ref={chatCardRef} className="bg-background h-full flex flex-col overflow-hidden border-0 rounded-none relative">
-      <CardContent className="flex flex-1 min-h-0 flex-col p-0 overflow-hidden relative">
-        <ChatNavbar
-          sidebarCollapsed={state.sidebarCollapsed}
-          onOpenSidebar={state.openSidebar}
-          onExpandSidebar={state.expandSidebar}
-          onNewChat={state.handleCompose}
-          localPath={state.navbarLocalPath}
-          embeddedTerminalVisible={showTerminalPane}
-          onToggleEmbeddedTerminal={projectId
-            ? () => {
-              if (hasTerminals) {
-                toggleVisibility(projectId)
-                return
-              }
-              addTerminal(projectId)
-            }
-            : undefined}
-          rightSidebarVisible={showRightSidebar}
-          onToggleRightSidebar={projectId ? () => toggleRightSidebar(projectId) : undefined}
-          onOpenExternal={(action) => {
-            void state.handleOpenExternal(action)
-          }}
-          editorLabel={state.editorLabel}
-          finderShortcut={resolvedKeybindings.bindings.openInFinder}
-          editorShortcut={resolvedKeybindings.bindings.openInEditor}
-          terminalShortcut={resolvedKeybindings.bindings.toggleEmbeddedTerminal}
-          rightSidebarShortcut={resolvedKeybindings.bindings.toggleRightSidebar}
-        />
+  const globalState: ChatPanelGlobalState = useMemo(() => ({
+    sidebarCollapsed: state.sidebarCollapsed,
+    openSidebar: state.openSidebar,
+    expandSidebar: state.expandSidebar,
+    handleCompose: state.handleCompose,
+    handleOpenExternal: state.handleOpenExternal,
+    editorLabel: state.editorLabel,
+    hasSelectedProject: state.hasSelectedProject,
+  }), [
+    state.sidebarCollapsed,
+    state.openSidebar,
+    state.expandSidebar,
+    state.handleCompose,
+    state.handleOpenExternal,
+    state.editorLabel,
+    state.hasSelectedProject,
+  ])
 
-        <ScrollArea
-          ref={state.scrollRef}
-          onScroll={state.updateScrollState}
-          className="flex-1 min-h-0 px-4 scroll-pt-[72px]"
-        >
-          {state.messages.length === 0 ? <div style={{ height: state.transcriptPaddingBottom }} aria-hidden="true" /> : null}
-          {state.messages.length > 0 ? (
-            <>
-              <div className="animate-fade-in space-y-5 pt-[72px] max-w-[800px] mx-auto">
-                <KannaTranscript
-                  messages={state.messages}
-                  isLoading={state.isProcessing}
-                  localPath={state.runtime?.localPath}
-                  latestToolIds={state.latestToolIds}
-                  onOpenLocalLink={state.handleOpenLocalLink}
-                  onAskUserQuestionSubmit={state.handleAskUserQuestion}
-                  onExitPlanModeConfirm={state.handleExitPlanMode}
-                />
-                {state.isProcessing ? <ProcessingMessage status={state.runtime?.status} /> : null}
-                {state.commandError ? (
-                  <div className="text-sm text-destructive border border-destructive/20 bg-destructive/5 rounded-xl px-4 py-3">
-                    {state.commandError}
-                  </div>
-                ) : null}
-              </div>
-              <div style={{ height: 250 }} aria-hidden="true" />
-            </>
-          ) : null}
-        </ScrollArea>
+  const hasSplitPanels = splitPanels.length > 0
+  const allChatIds = useMemo(() => {
+    const ids = [state.activeChatId]
+    for (const panel of splitPanels) {
+      ids.push(panel.chatId)
+    }
+    return ids
+  }, [state.activeChatId, splitPanels])
 
-        {state.messages.length === 0 ? (
-          <div
-            key={state.activeChatId ?? "new-chat"}
-            className="pointer-events-none absolute inset-x-4 animate-fade-in"
-            style={{
-              top: CHAT_NAVBAR_OFFSET_PX,
-              bottom: state.transcriptPaddingBottom,
-            }}
+  const onToggleEmbeddedTerminal = projectId
+    ? () => {
+        if (hasTerminals) {
+          toggleVisibility(projectId)
+          return
+        }
+        addTerminal(projectId)
+      }
+    : undefined
+
+  const chatContent = hasSplitPanels ? (
+    <ResizablePanelGroup orientation="horizontal" className="h-full">
+      {allChatIds.map((cId, i) => (
+        <Fragment key={cId ?? `panel-${i}`}>
+          {i > 0 && <ResizableHandle orientation="horizontal" withHandle />}
+          <ResizablePanel
+            id={`split-${i}`}
+            defaultSize={`${100 / allChatIds.length}%`}
+            minSize="20%"
+            className="min-h-0 min-w-0"
           >
-            <div className="mx-auto flex h-full max-w-[800px] items-center justify-center">
-              <div className="flex flex-col items-center justify-center text-muted-foreground gap-4 opacity-70">
-                <Flower strokeWidth={1.5} className="size-8 text-muted-foreground kanna-empty-state-flower"></Flower>
-                <div
-                  className="text-base font-normal text-muted-foreground text-center max-w-xs flex items-center kanna-empty-state-text"
-                  aria-label={EMPTY_STATE_TEXT}
-                >
-                  <span className="relative inline-grid place-items-start">
-                    <span className="invisible col-start-1 row-start-1 whitespace-pre flex items-center">
-                      <span>{EMPTY_STATE_TEXT}</span>
-                      <span className="kanna-typewriter-cursor-slot" aria-hidden="true" />
-                    </span>
-                    <span className="col-start-1 row-start-1 whitespace-pre flex items-center">
-                      <span>{typedEmptyStateText}</span>
-                      <span className="kanna-typewriter-cursor-slot" aria-hidden="true">
-                        <span
-                          className="kanna-typewriter-cursor"
-                          data-typing-complete={isEmptyStateTypingComplete ? "true" : "false"}
-                        />
-                      </span>
-                    </span>
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        <div
-          style={{ bottom: SCROLL_BUTTON_BOTTOM_PX }}
-          className={cn(
-            "absolute left-1/2 -translate-x-1/2 z-10 transition-all",
-            state.showScrollButton
-              ? "scale-100 duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
-              : "scale-60 duration-300 ease-out pointer-events-none blur-sm opacity-0"
-          )}
-        >
-          <button
-            onClick={state.scrollToBottom}
-            className="flex items-center transition-colors gap-1.5 px-2 bg-white hover:bg-muted border border-border rounded-full aspect-square cursor-pointer text-sm text-primary hover:text-foreground dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-slate-100 dark:border-slate-600"
-          >
-            <ArrowDown className="h-5 w-5" />
-          </button>
-        </div>
-      </CardContent>
-
-      <div className="absolute bottom-0 left-0 right-0 z-20 pointer-events-none">
-        <div className="bg-gradient-to-t from-background via-background pointer-events-auto" ref={state.inputRef}>
-          <ChatInput
-            ref={chatInputRef}
-            key={state.activeChatId ?? "new-chat"}
-            onSubmit={state.handleSend}
-            onCancel={() => {
-              void state.handleCancel()
-            }}
-            disabled={!state.hasSelectedProject || state.runtime?.status === "waiting_for_user"}
-            canCancel={state.canCancel}
-            chatId={state.activeChatId}
-            activeProvider={state.runtime?.provider ?? null}
-            availableProviders={state.availableProviders}
-          />
-        </div>
-      </div>
-    </Card>
+            <ChatPanel
+              chatId={cId}
+              socket={state.socket}
+              globalState={globalState}
+              isFocused={focusedIndex === i}
+              onFocus={() => setFocused(i)}
+              onClose={i > 0 ? () => removePanel(cId!) : undefined}
+              showNavbarToolbar={i === 0}
+              navbarLocalPath={i === 0 ? state.navbarLocalPath : undefined}
+              embeddedTerminalVisible={i === 0 ? showTerminalPane : undefined}
+              onToggleEmbeddedTerminal={i === 0 ? onToggleEmbeddedTerminal : undefined}
+              rightSidebarVisible={i === 0 ? showRightSidebar : undefined}
+              onToggleRightSidebar={i === 0 && projectId ? () => toggleRightSidebar(projectId) : undefined}
+              finderShortcut={i === 0 ? resolvedKeybindings.bindings.openInFinder : undefined}
+              editorShortcut={i === 0 ? resolvedKeybindings.bindings.openInEditor : undefined}
+              terminalShortcut={i === 0 ? resolvedKeybindings.bindings.toggleEmbeddedTerminal : undefined}
+              rightSidebarShortcut={i === 0 ? resolvedKeybindings.bindings.toggleRightSidebar : undefined}
+              chatInputRef={i === 0 ? chatInputRef : undefined}
+            />
+          </ResizablePanel>
+        </Fragment>
+      ))}
+    </ResizablePanelGroup>
+  ) : (
+    <ChatPanel
+      chatId={state.activeChatId}
+      socket={state.socket}
+      globalState={globalState}
+      isFocused
+      onFocus={() => {}}
+      navbarLocalPath={state.navbarLocalPath}
+      embeddedTerminalVisible={showTerminalPane}
+      onToggleEmbeddedTerminal={onToggleEmbeddedTerminal}
+      rightSidebarVisible={showRightSidebar}
+      onToggleRightSidebar={projectId ? () => toggleRightSidebar(projectId) : undefined}
+      finderShortcut={resolvedKeybindings.bindings.openInFinder}
+      editorShortcut={resolvedKeybindings.bindings.openInEditor}
+      terminalShortcut={resolvedKeybindings.bindings.toggleEmbeddedTerminal}
+      rightSidebarShortcut={resolvedKeybindings.bindings.toggleRightSidebar}
+      chatInputRef={chatInputRef}
+    />
   )
 
   return (
@@ -404,7 +288,7 @@ export function ChatPage() {
                 }}
               >
                 <ResizablePanel id="chat" defaultSize={`${terminalLayout.mainSizes[0]}%`} minSize="25%" className="min-h-0">
-                  {chatCard}
+                  {chatContent}
                 </ResizablePanel>
                 <ResizableHandle
                   withHandle
@@ -450,7 +334,7 @@ export function ChatPage() {
                 </ResizablePanel>
               </ResizablePanelGroup>
             ) : (
-              chatCard
+              chatContent
             )}
           </ResizablePanel>
           <ResizableHandle
@@ -496,7 +380,7 @@ export function ChatPage() {
           }}
         >
           <ResizablePanel id="chat" defaultSize={`${terminalLayout.mainSizes[0]}%`} minSize="25%" className="min-h-0">
-            {chatCard}
+            {chatContent}
           </ResizablePanel>
           <ResizableHandle
             withHandle
@@ -542,7 +426,7 @@ export function ChatPage() {
           </ResizablePanel>
         </ResizablePanelGroup>
       ) : (
-        chatCard
+        chatContent
       )}
 
     </div>

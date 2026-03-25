@@ -10,18 +10,23 @@ const loadingStatuses = new Set(["starting", "running"])
 interface Props {
   chat: SidebarChatRow
   activeChatId: string | null
+  splitChatIds?: Set<string>
   nowMs: number
   onSelectChat: (chatId: string) => void
+  onSplitChat?: (chatId: string) => void
   onDeleteChat: (chatId: string) => void
 }
 
 export function ChatRow({
   chat,
   activeChatId,
+  splitChatIds,
   nowMs,
   onSelectChat,
+  onSplitChat,
   onDeleteChat,
 }: Props) {
+  const isSplitOpen = splitChatIds?.has(normalizeChatId(chat.chatId)) ?? false
   const ageLabel = formatSidebarAgeLabel(chat.lastMessageAt, nowMs)
 
   return (
@@ -30,9 +35,20 @@ export function ChatRow({
       data-chat-id={normalizeChatId(chat.chatId)}
       className={cn(
         "group flex items-center gap-2 pl-2.5 pr-0.5 py-0.5 rounded-lg cursor-pointer border-border/0 hover:border-border hover:bg-muted/20 active:scale-[0.985] border transition-all",
-        activeChatId === normalizeChatId(chat.chatId) ? "bg-muted hover:bg-muted border-border" : "border-border/0 dark:hover:border-slate-400/10 "
+        activeChatId === normalizeChatId(chat.chatId)
+          ? "bg-muted hover:bg-muted border-border"
+          : isSplitOpen
+            ? "bg-muted/50 hover:bg-muted border-border/50"
+            : "border-border/0 dark:hover:border-slate-400/10 "
       )}
-      onClick={() => onSelectChat(chat.chatId)}
+      onClick={(event) => {
+        if ((event.metaKey || event.ctrlKey) && onSplitChat) {
+          event.preventDefault()
+          onSplitChat(chat.chatId)
+          return
+        }
+        onSelectChat(chat.chatId)
+      }}
     >
       {loadingStatuses.has(chat.status) ? (
         <Loader2 className="size-3.5 flex-shrink-0 animate-spin text-muted-foreground" />

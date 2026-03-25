@@ -13,6 +13,7 @@ import { useProjectGroupOrderStore } from "../stores/projectGroupOrderStore"
 interface KannaSidebarProps {
   data: SidebarData
   activeChatId: string | null
+  splitChatIds?: Set<string>
   connectionStatus: SocketStatus
   ready: boolean
   open: boolean
@@ -23,6 +24,7 @@ interface KannaSidebarProps {
   onCollapse: () => void
   onExpand: () => void
   onCreateChat: (projectId: string) => void
+  onSplitChat?: (chatId: string) => void
   onDeleteChat: (chat: SidebarChatRow) => void
   onRemoveProject: (projectId: string) => void
   updateSnapshot: UpdateSnapshot | null
@@ -42,10 +44,12 @@ export function KannaSidebar({
   onCollapse,
   onExpand,
   onCreateChat,
+  onSplitChat,
   onDeleteChat,
   onRemoveProject,
   updateSnapshot,
   onInstallUpdate,
+  splitChatIds,
 }: KannaSidebarProps) {
   const location = useLocation()
   const navigate = useNavigate()
@@ -115,11 +119,13 @@ export function KannaSidebar({
       key={chat._id}
       chat={chat}
       activeChatId={activeChatId}
+      splitChatIds={splitChatIds}
       nowMs={nowMs}
       onSelectChat={(chatId) => navigate(`/chat/${chatId}`)}
+      onSplitChat={onSplitChat}
       onDeleteChat={() => onDeleteChat(chat)}
     />
-  ), [activeChatId, navigate, nowMs, onDeleteChat])
+  ), [activeChatId, splitChatIds, navigate, nowMs, onSplitChat, onDeleteChat])
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {

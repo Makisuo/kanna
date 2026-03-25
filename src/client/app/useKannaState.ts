@@ -12,6 +12,7 @@ import { useAppDialog } from "../components/ui/app-dialog"
 import { processTranscriptMessages } from "../lib/parseTranscript"
 import { canCancelStatus, getLatestToolIds, isProcessingStatus } from "./derived"
 import { KannaSocket, type SocketStatus } from "./socket"
+import { useSplitViewStore } from "../stores/splitViewStore"
 
 export function getNewestRemainingChatId(projectGroups: SidebarData["projectGroups"], activeChatId: string): string | null {
   const projectGroup = projectGroups.find((group) => group.chats.some((chat) => chat.chatId === activeChatId))
@@ -564,6 +565,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
     if (!confirmed) return
     try {
       await socket.command({ type: "chat.delete", chatId: chat.chatId })
+      useSplitViewStore.getState().removePanel(chat.chatId)
       if (chat.chatId === activeChatId) {
         const nextChatId = getNewestRemainingChatId(sidebarData.projectGroups, chat.chatId)
         navigate(nextChatId ? `/chat/${nextChatId}` : "/")

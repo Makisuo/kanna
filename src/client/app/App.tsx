@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { useEffect, useMemo } from "react"
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom"
 import { AppDialogProvider } from "../components/ui/app-dialog"
 import { TooltipProvider } from "../components/ui/tooltip"
@@ -8,6 +8,8 @@ import { ChatPage } from "./ChatPage"
 import { LocalProjectsPage } from "./LocalProjectsPage"
 import { SettingsPage } from "./SettingsPage"
 import { useKannaState } from "./useKannaState"
+import { useSplitViewStore } from "../stores/splitViewStore"
+import { normalizeChatId } from "../lib/utils"
 
 const VERSION_SEEN_STORAGE_KEY = "kanna:last-seen-version"
 
@@ -23,6 +25,25 @@ function KannaLayout() {
   const showMobileOpenButton = location.pathname === "/" || location.pathname.startsWith("/settings")
   const currentVersion = SDK_CLIENT_APP.split("/")[1] ?? "unknown"
 
+  const splitPanels = useSplitViewStore((store) => store.panels)
+  const addPanel = useSplitViewStore((store) => store.addPanel)
+  const clearSplit = useSplitViewStore((store) => store.clear)
+
+  const splitChatIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const panel of splitPanels) {
+      ids.add(normalizeChatId(panel.chatId))
+    }
+    return ids
+  }, [splitPanels])
+
+  // Clear split view when navigating away from chat routes
+  useEffect(() => {
+    if (!location.pathname.startsWith("/chat/")) {
+      clearSplit()
+    }
+  }, [location.pathname, clearSplit])
+
   useEffect(() => {
     const seenVersion = window.localStorage.getItem(VERSION_SEEN_STORAGE_KEY)
     const shouldRedirect = shouldRedirectToChangelog(location.pathname, currentVersion, seenVersion)
@@ -36,6 +57,7 @@ function KannaLayout() {
       <KannaSidebar
         data={state.sidebarData}
         activeChatId={state.activeChatId}
+        splitChatIds={splitChatIds}
         connectionStatus={state.connectionStatus}
         ready={state.sidebarReady}
         open={state.sidebarOpen}
@@ -47,6 +69,14 @@ function KannaLayout() {
         onExpand={state.expandSidebar}
         onCreateChat={(projectId) => {
           void state.handleCreateChat(projectId)
+        }}
+        onSplitChat={(chatId) => {
+          // If not on a chat page, navigate to the chat first
+          if (!state.activeChatId) {
+            navigate(`/chat/${chatId}`)
+            return
+          }
+          addPanel(chatId, state.activeChatId)
         }}
         onDeleteChat={(chat) => {
           void state.handleDeleteChat(chat)
