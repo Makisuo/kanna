@@ -4,49 +4,84 @@ export interface SplitPanel {
   chatId: string
 }
 
-interface SplitViewState {
+export interface ProjectSplitState {
   panels: SplitPanel[]
   focusedIndex: number
-  addPanel: (chatId: string, primaryChatId: string | null) => void
-  removePanel: (chatId: string) => void
-  setFocused: (index: number) => void
-  clear: () => void
 }
 
-export const useSplitViewStore = create<SplitViewState>()((set, get) => ({
-  panels: [],
-  focusedIndex: 0,
+interface SplitViewState {
+  projects: Record<string, ProjectSplitState>
+  addPanel: (projectId: string, chatId: string, primaryChatId: string | null) => void
+  removePanel: (projectId: string, chatId: string) => void
+  setFocused: (projectId: string, index: number) => void
+  clearProject: (projectId: string) => void
+}
 
-  addPanel: (chatId, primaryChatId) =>
+function getProjectState(projects: Record<string, ProjectSplitState>, projectId: string): ProjectSplitState {
+  return projects[projectId] ?? { panels: [], focusedIndex: 0 }
+}
+
+export const useSplitViewStore = create<SplitViewState>()((set) => ({
+  projects: {},
+
+  addPanel: (projectId, chatId, primaryChatId) =>
     set((state) => {
+      const project = getProjectState(state.projects, projectId)
       if (chatId === primaryChatId) return state
-      if (state.panels.some((p) => p.chatId === chatId)) return state
+      if (project.panels.some((p) => p.chatId === chatId)) return state
       return {
-        panels: [...state.panels, { chatId }],
-        focusedIndex: state.panels.length + 1,
+        projects: {
+          ...state.projects,
+          [projectId]: {
+            panels: [...project.panels, { chatId }],
+            focusedIndex: project.panels.length + 1,
+          },
+        },
       }
     }),
 
-  removePanel: (chatId) =>
+  removePanel: (projectId, chatId) =>
     set((state) => {
-      const panelIndex = state.panels.findIndex((p) => p.chatId === chatId)
+      const project = getProjectState(state.projects, projectId)
+      const panelIndex = project.panels.findIndex((p) => p.chatId === chatId)
       if (panelIndex === -1) return state
-      const panels = state.panels.filter((p) => p.chatId !== chatId)
+      const panels = project.panels.filter((p) => p.chatId !== chatId)
       const removedGlobalIndex = panelIndex + 1
-      let focusedIndex = state.focusedIndex
+      let focusedIndex = project.focusedIndex
       if (focusedIndex === removedGlobalIndex) {
         focusedIndex = 0
       } else if (focusedIndex > removedGlobalIndex) {
         focusedIndex = focusedIndex - 1
       }
-      return { panels, focusedIndex: Math.min(focusedIndex, panels.length) }
+      return {
+        projects: {
+          ...state.projects,
+          [projectId]: {
+            panels,
+            focusedIndex: Math.min(focusedIndex, panels.length),
+          },
+        },
+      }
     }),
 
-  setFocused: (index) =>
+  setFocused: (projectId, index) =>
     set((state) => {
-      const maxIndex = state.panels.length
-      return { focusedIndex: Math.min(Math.max(0, index), maxIndex) }
+      const project = getProjectState(state.projects, projectId)
+      const maxIndex = project.panels.length
+      return {
+        projects: {
+          ...state.projects,
+          [projectId]: {
+            ...project,
+            focusedIndex: Math.min(Math.max(0, index), maxIndex),
+          },
+        },
+      }
     }),
 
-  clear: () => set({ panels: [], focusedIndex: 0 }),
+  clearProject: (projectId) =>
+    set((state) => {
+      const { [projectId]: _removed, ...rest } = state.projects
+      return { projects: rest }
+    }),
 }))

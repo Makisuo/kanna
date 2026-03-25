@@ -565,7 +565,10 @@ export function useKannaState(activeChatId: string | null): KannaState {
     if (!confirmed) return
     try {
       await socket.command({ type: "chat.delete", chatId: chat.chatId })
-      useSplitViewStore.getState().removePanel(chat.chatId)
+      const chatProject = sidebarData.projectGroups.find((g) => g.chats.some((c) => c.chatId === chat.chatId))
+      if (chatProject) {
+        useSplitViewStore.getState().removePanel(chatProject.groupKey, chat.chatId)
+      }
       if (chat.chatId === activeChatId) {
         const nextChatId = getNewestRemainingChatId(sidebarData.projectGroups, chat.chatId)
         navigate(nextChatId ? `/chat/${nextChatId}` : "/")
@@ -591,6 +594,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
       await socket.command({ type: "project.remove", projectId })
       useTerminalLayoutStore.getState().clearProject(projectId)
       useRightSidebarStore.getState().clearProject(projectId)
+      useSplitViewStore.getState().clearProject(projectId)
       if (runtime?.projectId === projectId) {
         navigate("/")
       }

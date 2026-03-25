@@ -25,24 +25,19 @@ function KannaLayout() {
   const showMobileOpenButton = location.pathname === "/" || location.pathname.startsWith("/settings")
   const currentVersion = SDK_CLIENT_APP.split("/")[1] ?? "unknown"
 
-  const splitPanels = useSplitViewStore((store) => store.panels)
+  const currentProjectId = state.runtime?.projectId ?? null
+  const currentProjectSplit = useSplitViewStore((store) =>
+    currentProjectId ? store.projects[currentProjectId] : undefined
+  )
   const addPanel = useSplitViewStore((store) => store.addPanel)
-  const clearSplit = useSplitViewStore((store) => store.clear)
 
   const splitChatIds = useMemo(() => {
     const ids = new Set<string>()
-    for (const panel of splitPanels) {
+    for (const panel of currentProjectSplit?.panels ?? []) {
       ids.add(normalizeChatId(panel.chatId))
     }
     return ids
-  }, [splitPanels])
-
-  // Clear split view when navigating away from chat routes
-  useEffect(() => {
-    if (!location.pathname.startsWith("/chat/")) {
-      clearSplit()
-    }
-  }, [location.pathname, clearSplit])
+  }, [currentProjectSplit?.panels])
 
   useEffect(() => {
     const seenVersion = window.localStorage.getItem(VERSION_SEEN_STORAGE_KEY)
@@ -71,12 +66,26 @@ function KannaLayout() {
           void state.handleCreateChat(projectId)
         }}
         onSplitChat={(chatId) => {
-          // If not on a chat page, navigate to the chat first
           if (!state.activeChatId) {
             navigate(`/chat/${chatId}`)
             return
           }
-          addPanel(chatId, state.activeChatId)
+
+          // Find which project the clicked chat belongs to
+          const clickedGroup = state.sidebarData.projectGroups.find((g) =>
+            g.chats.some((c) => c.chatId === chatId)
+          )
+
+          if (clickedGroup && currentProjectId && clickedGroup.groupKey !== currentProjectId) {
+            // Different project → open in new browser window
+            window.open(`/chat/${chatId}`, "_blank")
+            return
+          }
+
+          // Same project → add to split
+          if (currentProjectId) {
+            addPanel(currentProjectId, chatId, state.activeChatId)
+          }
         }}
         onDeleteChat={(chat) => {
           void state.handleDeleteChat(chat)

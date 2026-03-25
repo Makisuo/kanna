@@ -44,8 +44,9 @@ export function ChatPage() {
   const keybindings = state.keybindings
   const resolvedKeybindings = useMemo(() => getResolvedKeybindings(keybindings), [keybindings])
 
-  const splitPanels = useSplitViewStore((store) => store.panels)
-  const focusedIndex = useSplitViewStore((store) => store.focusedIndex)
+  const projectSplit = useSplitViewStore((store) => projectId ? store.projects[projectId] : undefined)
+  const splitPanels = projectSplit?.panels ?? []
+  const focusedIndex = projectSplit?.focusedIndex ?? 0
   const setFocused = useSplitViewStore((store) => store.setFocused)
   const removePanel = useSplitViewStore((store) => store.removePanel)
 
@@ -183,12 +184,12 @@ export function ChatPage() {
     : undefined
 
   const handleFocus = useCallback((index: number) => {
-    setFocused(index)
-  }, [setFocused])
+    if (projectId) setFocused(projectId, index)
+  }, [projectId, setFocused])
 
   const handleClosePanel = useCallback((chatId: string) => {
-    removePanel(chatId)
-  }, [removePanel])
+    if (projectId) removePanel(projectId, chatId)
+  }, [projectId, removePanel])
 
   const noopFocus = useCallback(() => {}, [])
 
@@ -460,7 +461,7 @@ function SplitChatPanels({
     <ResizablePanelGroup orientation="horizontal" className="h-full">
       {allChatIds.map((cId, i) => (
         <Fragment key={cId ?? `panel-${i}`}>
-          {i > 0 && <ResizableHandle orientation="horizontal" className="!w-2 !-mx-0 before:!w-0 cursor-col-resize" />}
+          {i > 0 && <ResizableHandle orientation="horizontal" className="!w-2 !mx-0 before:!w-0 cursor-col-resize" />}
           <ResizablePanel
             id={`split-${i}`}
             defaultSize={`${100 / allChatIds.length}%`}
@@ -533,7 +534,6 @@ function SplitChatPanelSlot({
   }, [onClose, chatId])
 
   const isFirst = index === 0
-  const isLast = index === totalPanels - 1
 
   return (
     <div className={cn(
